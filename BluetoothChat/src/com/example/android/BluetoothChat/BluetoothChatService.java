@@ -16,21 +16,28 @@
 
 package com.example.android.BluetoothChat;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Date;
 import java.util.UUID;
-
+import org.apache.http.util.ByteArrayBuffer;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.Context;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Message;
+import android.provider.MediaStore;
 import android.util.Log;
 
 /**
@@ -66,11 +73,13 @@ public class BluetoothChatService {
 	public static final int STATE_LISTEN = 1;     // now listening for incoming connections
 	public static final int STATE_CONNECTING = 2; // now initiating an outgoing connection
 	public static final int STATE_CONNECTED = 3;  // now connected to a remote device
+	
 
 	public boolean accepting;
-	
+
 	public boolean isServer = true;
-	
+
+	private Context bc;
 
 	private ArrayList<BluetoothClient> bluetoothClients = new ArrayList<BluetoothClient>();
 	private ArrayList<BluetoothMessage> messages = new ArrayList<BluetoothMessage>();
@@ -81,27 +90,28 @@ public class BluetoothChatService {
 	 * @param handler  A Handler to send messages back to the UI Activity
 	 */
 	public BluetoothChatService(Context context, Handler handler) {
+		bc = context;
 		mAdapter = BluetoothAdapter.getDefaultAdapter();
 		mState = STATE_NONE;
 		mHandler = handler;
 	}
-	
+
 	public void addMessageToHistory(BluetoothMessage m){
 		messages.add(m);
 		if (messages.size()>11){
 			messages.remove(0);
 		}
 	}
-	
+
 	public void setServer(boolean b){
 		isServer = b;
 		accepting = b;
-		
+
 		if (isServer){
 			if (mSecureAcceptThread == null) {
 				mSecureAcceptThread = new AcceptThread();
 			}
-			
+
 			if (!mSecureAcceptThread.isAlive()){
 				mSecureAcceptThread.start();
 				setState(STATE_LISTEN);
@@ -110,14 +120,14 @@ public class BluetoothChatService {
 			messages.clear();
 		}
 	}
-	
+
 	public void startServer(){
-		
+
 		stop();
 		setServer(true);
-		
+
 	}
-	
+
 
 	/**
 	 * Set the current state of the chat connection
@@ -149,14 +159,14 @@ public class BluetoothChatService {
 		// Cancel any thread currently running a connection
 
 		setServer(true);
-		
+
 		//setState(STATE_LISTEN);
 
 		// Start the thread to listen on a BluetoothServerSocket
-//		if (mSecureAcceptThread == null) {
-//			mSecureAcceptThread = new AcceptThread();
-//			mSecureAcceptThread.start();
-//		}
+		//		if (mSecureAcceptThread == null) {
+		//			mSecureAcceptThread = new AcceptThread();
+		//			mSecureAcceptThread.start();
+		//		}
 	}
 
 	/**
@@ -203,7 +213,7 @@ public class BluetoothChatService {
 
 		//creating new client
 		BluetoothClient bc = new BluetoothClient(socket,_mConnectedThread);
-		
+
 		bluetoothClients.add(bc);
 
 
@@ -215,9 +225,9 @@ public class BluetoothChatService {
 		mHandler.sendMessage(msg);
 
 		setState(STATE_CONNECTED);
-		
+
 		bc.connectedThread.sendLogs(); //write(messages.get(i).getJSONStr());		
-		
+
 	}
 
 	/**
@@ -241,7 +251,7 @@ public class BluetoothChatService {
 		}
 		bluetoothClients.clear();
 		messages.clear();
-		
+
 		setState(STATE_NONE);
 	}
 
@@ -255,17 +265,32 @@ public class BluetoothChatService {
 		// Synchronize a copy of the ConnectedThread
 		//synchronized (this) {
 		//	if (mState != STATE_CONNECTED) return;
-			//  r = mConnectedThread;
-			
+		//  r = mConnectedThread;
+
 		//}
 		// Perform the write unsynchronized
 		Log.d("write", "Send message");
-		
+
 		for (int i = 0 ; i < bluetoothClients.size(); i++){
 			bluetoothClients.get(i).connectedThread.write(out);
 		}
-		
+
 		mHandler.obtainMessage(BluetoothChat.MESSAGE_WRITE, -1, -1, out).sendToTarget();
+
+	}
+
+	public void writeFile(Uri uri) {
+		try{
+
+			for (int i = 0 ; i < bluetoothClients.size(); i++){
+				bluetoothClients.get(i).connectedThread.writeFile(uri);
+			}
+		}catch (Exception e){
+
+		}
+
+
+		//mHandler.obtainMessage(BluetoothChat.MESSAGE_WRITE, -1, -1, out).sendToTarget();
 
 	}
 
@@ -480,34 +505,82 @@ public class BluetoothChatService {
 			byte[] buffer = new byte[1024];
 			int bytes;
 
+			boolean fileMode = false;
+			ByteArrayBuffer file = null;
+			long fileSize = 0;
+			long totalSize = 0;
+			String fileName = "tmp";
+			String fileAuthor = "";
+
 			// Keep listening to the InputStream while connected
 			while (true) {
 				try {
 					// Read from the InputStream
 					bytes = mmInStream.read(buffer);
 
-					// Send the obtained bytes to the UI Activity
-					mHandler.obtainMessage(BluetoothChat.MESSAGE_READ, bytes, -1, buffer).sendToTarget();
-					
-					String str = new String(buffer, 0, bytes);
-					
-					//Log.d("read", new String(buffer));
-					
-					if (bluetoothClients.size()>1){
-						//Log.d("broadcast", String.valueOf(bluetoothClients.size()));
-						for (int i = 0; i < bluetoothClients.size(); i++){
-							if (!bluetoothClients.get(i).deviceAdress.equals(mmSocket.getRemoteDevice().getAddress())){
-								bluetoothClients.get(i).connectedThread.write(str.getBytes());
-								
-								//Log.d("broadcast", "send to "+mmSocket.getRemoteDevice().getAddress());
+					// construct a string from the buffer
+					String writeMessage = new String(buffer);
+					BluetoothMessage m = new BluetoothMessage(writeMessage);
+
+					if (m.type == BluetoothMessage.TYPE_TEXT) {
+						// Send the obtained bytes to the UI Activity
+						mHandler.obtainMessage(BluetoothChat.MESSAGE_READ, bytes, -1, m).sendToTarget();
+					} else if (m.type == BluetoothMessage.TYPE_FILE_START) {
+						fileMode = true;
+						fileSize = 0;
+						totalSize = Long.parseLong(m.date);// Integer.parseInt(m.date);
+						fileName = m.text;
+						fileAuthor = m.author;
+						file = new ByteArrayBuffer((int)totalSize);
+						continue;
+					}
+
+
+					if (fileMode){
+						file.append(buffer, 0, bytes);
+						fileSize += bytes;
+						if (fileSize >= totalSize) {
+							fileMode = false;
+							File savedFile = new File (Environment.getExternalStorageDirectory().getPath()+"/"+ ( (!fileName.isEmpty()) ? fileName : "tmp.txt"));
+							FileOutputStream fos = new FileOutputStream(savedFile);
+				            fos.write(file.toByteArray());
+				            fos.close();
+				            
+				    		Date d = new Date();
+							String date = BluetoothChat.pad(d.getHours()) + ":"+ BluetoothChat.pad(d.getMinutes())+ ":"+ BluetoothChat.pad(d.getSeconds());
+				            
+				            BluetoothMessage bm = new BluetoothMessage(fileAuthor, date, "file "+fileName+" sent");
+				            
+				            mHandler.obtainMessage(BluetoothChat.MESSAGE_READ, bytes, -1, bm).sendToTarget();
+				            
+				            Uri uri = Uri.fromFile(savedFile);
+				            if (bluetoothClients.size()>1){
+								for (int i = 0; i < bluetoothClients.size(); i++){
+									if (!bluetoothClients.get(i).deviceAdress.equals(mmSocket.getRemoteDevice().getAddress())){
+										bluetoothClients.get(i).connectedThread.writeFile(uri);
+									}
+								}
+							}
+				        }
+					}else{
+						String str = new String(buffer, 0, bytes);
+
+						if (bluetoothClients.size()>1){
+							for (int i = 0; i < bluetoothClients.size(); i++){
+								if (!bluetoothClients.get(i).deviceAdress.equals(mmSocket.getRemoteDevice().getAddress())){
+									bluetoothClients.get(i).connectedThread.write(str.getBytes());
+								}
 							}
 						}
+
 					}
-					
 				} catch (IOException e) {
 					Log.e(TAG, "disconnected", e);
 					connectionLost();
 					break;
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
 				}
 			}
 		}
@@ -521,12 +594,41 @@ public class BluetoothChatService {
 				mmOutStream.write(buffer);
 				mmOutStream.flush();	
 				// Share the sent message back to the UI Activity
-				
+
 			} catch (IOException e) {
 				Log.e(TAG, "Exception during write", e);
 			}
 		}
+
 		
+		
+		public void writeFile(Uri uri) throws IOException, InterruptedException {
+			File f = new File(uri.toString());
+			
+			String fileName = f.getName();
+			InputStream inputStream = bc.getContentResolver().openInputStream(uri);
+			
+			long fileSize = inputStream.available();
+			
+			BluetoothMessage m = new BluetoothMessage(BluetoothAdapter.getDefaultAdapter().getName(), String.valueOf(fileSize), fileName, BluetoothMessage.TYPE_FILE_START);
+			write(m.getJSONStr());
+			
+			sleep(100);
+			
+			ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();			
+
+			int buffersize = 1024;
+			byte[] buffer = new byte[buffersize];
+
+			int len = 0;
+			while((len = inputStream.read(buffer)) != -1){
+				byteBuffer.write(buffer, 0, len);
+			}
+
+			Log.d(TAG, "sending data to connected thread");
+			write(byteBuffer.toByteArray());
+		}
+
 		public void sendLogs(){
 			for (int i = 0; i < messages.size(); i++){
 				write(messages.get(i).getJSONStr());

@@ -18,6 +18,13 @@
     android:layout_height="match_parent"
     android:gravity="center_vertical"
   >
+  
+    
+    <com.example.android.BluetoothChat.RoundedTileBackground
+        android:layout_width="fill_parent"
+        android:layout_height="48dp"
+         />
+    
   <TextView android:id="@+id/title_left_text"
       android:layout_alignParentLeft="true"
       android:ellipsize="end"

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="blueRoundButton" parent="@android:style/Widget.Button">
+        <item name="android:background">@drawable/blue_round_button</item>
+        <item name="android:textColor">#ffffff</item>
+        <item name="android:layout_width">70dp</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:textSize">17sp</item>
+    </style>
+    
+    <style name="stroke" parent="@android:style/Theme">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:background">#376a7b</item>
+    </style>
+</resources>
